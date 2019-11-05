@@ -1,0 +1,216 @@
+;;;; cl-trees.lisp
+
+(in-package #:cl-trees)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; binary search trees (PBI book)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defstruct node
+  contents
+  (prev nil)
+  (post nil))
+
+(defun bst-insert (obj bst before)
+  (cond ((null bst) (make-node :contents obj))
+    (t
+     (let ((contents (node-contents bst)))
+       (cond ((eql obj contents) bst)
+         ((funcall before obj contents)
+          (make-node
+           :contents contents
+           :prev (bst-insert obj (node-prev bst) before)
+           :after (node-after bst)))
+         (t
+          (make-node
+           :contents contents
+           :prev (node-prev bst)
+           :after (bst-insert obj (node-post bst) before))))))))
+
+;;; cost is very low because all rest ist shared with previous tree
+
+;;; entry finding is simpler than divide and conquer of array
+
+(defun bst-find (obj bst before)
+  (cond ((null bst) nil)
+    (t
+     (let ((contents (node-contents bst)))
+       (cond ((eql obj contents) bst)
+         ((funcall before obj contents)
+          (bst-find obj (node-prev bst) before))
+         (t
+          (bst-find obj (nocd-post bst) before)))))))
+
+;;; removing node: Graham 137 page 74
+;;; destructive version: Graham 137 page 202
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; intervall trees
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+         
+         
+(defstruct interval
+  (start 0.0)
+  (end 0.0)
+  (description nil))
+
+(defstruct inverval-node
+  contents
+  (prev nil)
+  (over nil)
+  (post nil))
+
+(defun prev-p (iv1 iv2)
+  (< (interval-start iv1) (interval-end iv2)))
+
+(defun post-p (iv1 iv2)
+  (> (interval-start iv1) (interval-end iv2)))
+
+(defun over-p (iv1 iv2 &key (type "open"))
+  (cond ((equal type "open")
+         (and (< (interval-start iv2) (interval-end iv1))
+              (< (interval-start iv1) (interval-end iv2))))
+        ((equal type "closed")
+         (and (not (prev-p iv1 iv2))
+              (not (prev-p iv2 iv1))))
+        (t
+         (error "Please specify correct :type")))) ; is this really correct?
+
+(defun interval-insert (iv tree &key (type "open"))
+  (if (null tree)
+      (make-interval-node :contents iv))
+      (let ((contents (interval-node-contents tree)))
+        (cond ((equal iv contents) tree)
+             ((prev-p iv contents)
+              (make-interval-node
+                :contents contents
+                :prev (interval-insert iv (interval-node-prev tree))
+                :over (interval-node-over tree)
+                :post (interval-node-post tree)))
+             ((over-p iv contents)
+              (make-interval-node
+                :contents contents
+                :prev (interval-node-prev tree)
+                :over (interval-insert iv (interval-node-over tree))
+                :post (interval-node-post tree)))
+             ((post-p iv contents)
+              (make-interval-node
+                :contents contents
+                :prev (interval-node-prev tree)
+                :over (interval-node-over tree)
+                :post (interval-insert iv (interval-node-post tree)))))))
+
+
+(defun interval-find (iv tree)
+  (if (null tree)
+      nil
+      (let ((contents (interval-node-contents tree)))
+        (if (equal iv contents)
+            tree
+            (interval-find iv
+                           (cond ((prev-p iv contents)
+                                  (interval-node-prev tree))
+                                 ((over-p iv contents)
+                                  (interval-node-over tree))
+                                 ((post-p iv contents)
+                                  (interval-node-post tree))))))))
+
+(defun find-prev (iv tree)
+  (if (null tree)
+      nil
+      (let ((contents (interval-node-contents tree)))
+        (cond ((prev-p iv contents)
+               ;; serach the prev AND overlaps subtrees
+               (append (find-prev iv (interval-node-prev tree))
+                       (find-prev iv (interval-node-over tree))))
+              ((over-p iv contents)
+               ;; search all three subtrees
+               (append (find-prev iv (interval-node-prev tree))
+                       (find-prev iv (interval-node-over tree))
+                       (find-prev iv (interval-node-post tree))))
+              ((after iv contents) ; error in book! forgot opening paren
+               ;; include current interval AND search overlaps and after subtrees
+               (cons contents
+                     (append (find-prev iv (interval-node-over tree))
+                             (find-prev iv (interval-node-post tree)))))))))
+
+;; if interval is before current one,
+;; don't include current one or the ones AFTER it,
+;; since they will surely not be before given interval, but to search other two branches.
+;; if there is overlap, current interval is still not included, but all three subtrees needs to be searched.
+;; if given interval is after current interval, current interval does satisfy
+;; criterion, so ut it on beginning of list
+;; resulting from searching the overlaps and after subtrees.
+
+
+;; do corresponding for find-post and find-overlap
+
+(defun find-post (iv tree)
+  (if (null tree)
+      nil
+      (let ((contents (interval-node-contents tree)))
+        (cond ((prev-p iv contents)
+               ;; include current interval AND search the overlaps AND post subtrees
+               (cons contents
+                     (append (find-post iv (interval-node-over tree))
+                             (find-post iv (interval-node-post tree)))))
+              ((over-p iv contents)
+               ;; search all three subtrees
+               (append (find-post iv (interval-node-prev tree))
+                       (find-post iv (interval-node-over tree))
+                       (find-post iv (interval-node-post tree))))
+              ((post-p iv contents)
+               ;; search overlaps and post subtrees
+               (append (find-post iv (interval-node-over tree))
+                       (find-post iv (interval-node-post tree))))))))
+
+(defun find-over (iv tree)
+  (if (null tree)
+      nil
+      (let ((contents (interval-node-contents tree)))
+        (cond ((prev-p iv contents)
+               ;; search all but don't add current interval
+               (append (find-over iv (interval-node-prev tree))
+                       (find-over iv (interval-node-over tree))
+                       (find-over iv (interval-node-post tree))))
+              ((over-p iv contents)
+               ;; include current interval AND search all tree
+               (cond contents
+                     (append (find-over iv (interval-node-prev tree))
+                             (find-over iv (interval-node-over tree))
+                             (find-over iv (interval-node-post tree)))))
+              ((post-p iv contents)
+               ;; search all but don't add current interval
+               (append (find-over iv (interval-node-prev tree))
+                       (find-over iv (interval-node-over tree))
+                       (find-over iv (interval-node-post tree))))))))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
