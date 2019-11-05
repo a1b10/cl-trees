@@ -1,9 +1,10 @@
 ;;;; cl-trees.asd
 
 (asdf:defsystem #:cl-trees
-  :description "Describe cl-trees here"
+  :name "cl-trees"
+  :description "Interval trees with content for Common Lisp"
   :author "Gwang-Jin Kim"
-  :license  "Specify license here"
+  :license  "MIT"
   :version "0.0.1"
   :serial t
   :components ((:file "package")
